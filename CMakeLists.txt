@@ -28,11 +28,14 @@ set(PICO_CONFIG_HEADER_FILES "${CMAKE_CURRENT_SOURCE_DIR}/inc/sdk_config.h")
 include(pico-util.cmake)
 include(${HAL_COMMON_ROOT}/pico_base/generate_config_header.cmake)
 
+include(RF24/CMakeLists.txt)
+
 add_subdirectory(${HAL_COMMON_ROOT})
 add_subdirectory(${HAL_RP2_COMMON_ROOT})
 add_subdirectory(${HAL_RP2040_ROOT})
 
-set(TARGET_DEPS 
+set(TARGET_DEPS
+    RF24
     cmsis_core
     hardware_sync
     hardware_irq
@@ -51,7 +54,8 @@ set(TARGET_DEPS
     hardware_divider
     pico_runtime
     pico_float
-    pico_double)
+    pico_double
+    pico_stdlib)
 
 include_directories(${HAL_INCLUDES})
 
@@ -60,7 +64,12 @@ add_library(codal-rp2040 ${TOP_LEVEL_SOURCE} ${TOP_LEVEL_SOURCE0} ${TOP_LEVEL_SO
 
 target_link_libraries(codal-rp2040 codal-core ${OBJECT_FILES} ${ARCHIVE_FILES} ${TARGET_DEPS})
 
-#set_target_properties(codal-samd PROPERTIES LINKER_LANGUAGE CXX)
+target_compile_definitions(codal-rp2040
+    PUBLIC PICO_DEFAULT_SPI=0 # can only be 0 or 1 (as in `spi0` or `spi1`)
+    PUBLIC PICO_DEFAULT_SPI_SCK_PIN=2 # depends on which SPI bus (0 or 1) is being used
+    PUBLIC PICO_DEFAULT_SPI_TX_PIN=3  # depends on which SPI bus (0 or 1) is being used
+    PUBLIC PICO_DEFAULT_SPI_RX_PIN=4  # depends on which SPI bus (0 or 1) is being used
+)
 
 message("${PROCESSOR_DIR_INCLUDES} ${TOP_LEVEL_INCLUDE_DIRS}")
 # expose it to parent cmake.
