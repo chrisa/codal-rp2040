@@ -39,6 +39,11 @@ namespace codal
 #include "RF24RadioDatagram.h"
 #include "RF24RadioEvent.h"
 #include "Radio.h"
+#include "RF24.h"
+
+#define CE_PIN  7
+#define CSN_PIN 8
+#define IRQ_PIN 6
 
 // Status Flags
 #define RF24_RADIO_STATUS_INITIALISED       0x0001
@@ -83,6 +88,8 @@ class RF24Radio : public Radio
     int                     rssi;
     FrameBuffer             *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
     FrameBuffer             *rxBuf;     // A pointer to the buffer being actively used by the RADIO hardware.
+
+    RF24                    radio;     // The RF24 instance.
 
     public:
     RF24RadioDatagram   datagram;   // A simple datagram service.

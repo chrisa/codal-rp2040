@@ -23,6 +23,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 */
 
+#include "CodalDmesg.h"
 #include "RF24Radio.h"
 #include "Radio.h"
 #include "EventModel.h"
@@ -67,6 +68,8 @@ RF24Radio::RF24Radio(uint16_t id) : datagram(*this), event (*this)
     this->rxQueue = NULL;
     this->rxBuf = NULL;
 
+    this->radio = RF24(CE_PIN, CSN_PIN);
+
     instance = this;
 }
 
@@ -82,7 +85,27 @@ int RF24Radio::setTransmitPower(int power)
     if (power < 0 || power >= RF24_BLE_POWER_LEVELS)
         return DEVICE_INVALID_PARAMETER;
 
-    // 
+    switch(power) {
+        case 0:
+            radio.setPALevel(RF24_PA_MIN);
+            break;
+        case 1:
+        case 2:
+        case 3:
+            radio.setPALevel(RF24_PA_LOW);
+            break;
+        case 4:
+        case 5:
+        case 6:
+            radio.setPALevel(RF24_PA_HIGH);
+            break;
+        case 7:
+            radio.setPALevel(RF24_PA_MAX);
+            break;
+        default:
+            radio.setPALevel(RF24_PA_MIN);
+            break;
+    }
 
     return DEVICE_OK;
 }
@@ -222,7 +245,14 @@ int RF24Radio::enable()
     if (rxBuf == NULL)
         return DEVICE_NO_RESOURCES;
 
-    //
+    // initialize the transceiver on the SPI bus
+    if (!radio.begin()) {
+        DMESG("radio hardware is not responding!!\n");
+        return false;
+    }
+
+    radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
+    // radio.setPayloadSize(sizeof(payload)); // float datatype occupies 4 bytes
 
     return DEVICE_OK;
 }
@@ -268,7 +298,6 @@ int RF24Radio::setGroup(uint8_t group)
   * Here, we empty our queue of received packets, and pass them onto higher level protocol handlers.
   */
 
-#include "CodalDmesg.h"
 void RF24Radio::idleCallback()
 {
     // Walk the list of packets and process each one.
