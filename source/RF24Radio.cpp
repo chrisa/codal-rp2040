@@ -68,6 +68,8 @@ RF24Radio::RF24Radio(uint16_t id) : datagram(*this), event (*this)
     this->rxQueue = NULL;
     this->rxBuf = NULL;
 
+    DMESG("creating RF24 instance...");
+
     this->radio = RF24(CE_PIN, CSN_PIN);
 
     instance = this;
