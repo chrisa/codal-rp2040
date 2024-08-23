@@ -65,10 +65,10 @@ add_library(codal-rp2040 ${TOP_LEVEL_SOURCE} ${TOP_LEVEL_SOURCE0} ${TOP_LEVEL_SO
 target_link_libraries(codal-rp2040 codal-core ${OBJECT_FILES} ${ARCHIVE_FILES} ${TARGET_DEPS})
 
 target_compile_definitions(codal-rp2040
-    PUBLIC PICO_DEFAULT_SPI=0 # can only be 0 or 1 (as in `spi0` or `spi1`)
-    PUBLIC PICO_DEFAULT_SPI_SCK_PIN=2 # depends on which SPI bus (0 or 1) is being used
-    PUBLIC PICO_DEFAULT_SPI_TX_PIN=3  # depends on which SPI bus (0 or 1) is being used
-    PUBLIC PICO_DEFAULT_SPI_RX_PIN=4  # depends on which SPI bus (0 or 1) is being used
+    PUBLIC PICO_DEFAULT_SPI=1 # can only be 0 or 1 (as in `spi0` or `spi1`)
+    PUBLIC PICO_DEFAULT_SPI_SCK_PIN=26 # depends on which SPI bus (0 or 1) is being used
+    PUBLIC PICO_DEFAULT_SPI_TX_PIN=27  # depends on which SPI bus (0 or 1) is being used
+    PUBLIC PICO_DEFAULT_SPI_RX_PIN=28  # depends on which SPI bus (0 or 1) is being used
 )
 
 message("${PROCESSOR_DIR_INCLUDES} ${TOP_LEVEL_INCLUDE_DIRS}")
