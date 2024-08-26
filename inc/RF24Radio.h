@@ -36,6 +36,7 @@ namespace codal
 #include "CodalConfig.h"
 #include "CodalComponent.h"
 #include "ManagedBuffer.h"
+#include "RP2040Pin.h"
 #include "RF24RadioDatagram.h"
 #include "RF24RadioEvent.h"
 #include "Radio.h"
@@ -49,10 +50,9 @@ namespace codal
 #define RF24_RADIO_STATUS_INITIALISED       0x0001
 
 // Default configuration values
-#define RF24_RADIO_BASE_ADDRESS             0x75626974
 #define RF24_RADIO_DEFAULT_GROUP            0
-#define RF24_RADIO_DEFAULT_TX_POWER         6
-#define RF24_RADIO_DEFAULT_FREQUENCY        7
+#define RF24_RADIO_DEFAULT_TX_POWER         RF24_PA_HIGH
+#define RF24_RADIO_DEFAULT_FREQUENCY        76
 #define RF24_RADIO_MAX_PACKET_SIZE          32
 #define RF24_RADIO_HEADER_SIZE              4
 #define RF24_RADIO_MAXIMUM_RX_BUFFERS       4
@@ -89,12 +89,13 @@ class RF24Radio : public Radio
     FrameBuffer             *rxQueue;   // A linear list of incoming packets, queued awaiting processing.
     FrameBuffer             *rxBuf;     // A pointer to the buffer being actively used by the RADIO hardware.
 
-    RF24                    radio;     // The RF24 instance.
-
     public:
-    RF24RadioDatagram   datagram;   // A simple datagram service.
-    RF24RadioEvent      event;      // A simple event handling service.
-    static RF24Radio    *instance;  // A singleton reference, used purely by the interrupt service routine.
+    RF24RadioDatagram       datagram;   // A simple datagram service.
+    RF24RadioEvent          event;      // A simple event handling service.
+    RF24                    radio;      // The RF24 instance.
+    RP2040Pin               irq;        // irq pin for events/interrupts
+
+    static RF24Radio        *instance;  // A singleton reference, used purely by the interrupt service routine.
 
     /**
       * Constructor.
@@ -105,6 +106,8 @@ class RF24Radio : public Radio
       *       committed if send/recv or event registrations calls are made.
       */
     RF24Radio(uint16_t id = DEVICE_ID_RADIO);
+
+    int recvFrame();
 
     /**
       * Change the output power level of the transmitter to the given value.

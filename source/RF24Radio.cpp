@@ -30,24 +30,21 @@ DEALINGS IN THE SOFTWARE.
 #include "Event.h"
 #include "ErrorNo.h"
 
+#include "ram.h"
+#include "hardware/gpio.h"
+#include "hardware/irq.h"
+
 const int8_t RF24_BLE_POWER_LEVEL[] = {-30, -20, -16, -12, -8, -4, 0, 4};
+uint8_t ADDRESS[] = { 0x00, 0x75, 0x62, 0x69, 0x74 };
 
 using namespace codal;
 
 RF24Radio* RF24Radio::instance = NULL;
 
-extern "C" void RADIO_IRQHandler(void)
+extern "C" void interruptHandler(uint gpio, uint32_t events)
 {
-    // Associate this packet's rssi value with the data just
-    // transferred by DMA receive
-    // RF24Radio::instance->setRSSI(-sample);
-
-    // Now move on to the next buffer, if possible.
-    // The queued packet will get the rssi value set above.
-    // RF24Radio::instance->queueRxBuf();
-
-    // Set the new buffer for DMA
-    // NRF_RADIO->PACKETPTR = (uint32_t) RF24Radio::instance->getRxBuf();
+    DMESG("in irq handler");
+    RF24Radio::instance->recvFrame();
 }
 
 /**
@@ -58,7 +55,11 @@ extern "C" void RADIO_IRQHandler(void)
   * @note This class is demand activated, as a result most resources are only
   *       committed if send/recv or event registrations calls are made.
   */
-RF24Radio::RF24Radio(uint16_t id) : datagram(*this), event (*this)
+RF24Radio::RF24Radio(uint16_t id) : 
+    datagram(*this),
+    event(*this),
+    radio(CE_PIN, CSN_PIN),
+    irq(DEVICE_ID_IO_P0 + IRQ_PIN, (PinNumber) IRQ_PIN, PIN_CAPABILITY_DIGITAL)
 {
     this->id = id;
     this->status = 0;
@@ -68,11 +69,31 @@ RF24Radio::RF24Radio(uint16_t id) : datagram(*this), event (*this)
     this->rxQueue = NULL;
     this->rxBuf = NULL;
 
-    DMESG("creating RF24 instance...");
+    DMESG("creating RF24Radio instance...");
 
-    this->radio = RF24(CE_PIN, CSN_PIN);
+    // this->radio = RF24(CE_PIN, CSN_PIN);
+    // this->irq = RP2040Pin();
 
     instance = this;
+}
+
+int RF24Radio::recvFrame()
+{
+    DMESG("recvFrame");
+    // Associate this packet's rssi value with the data just
+    // transferred by DMA receive
+    setRSSI(-42);
+
+    uint8_t pipe;
+    if (radio.available(&pipe)) {
+        rxBuf->group = group;
+        rxBuf->length = radio.getPayloadSize();
+        radio.read(&rxBuf->payload, rxBuf->length);
+    }
+
+    // Now move on to the next buffer, if possible.
+    // The queued packet will get the rssi value set above.
+    RF24Radio::instance->queueRxBuf();
 }
 
 /**
@@ -86,6 +107,8 @@ int RF24Radio::setTransmitPower(int power)
 {
     if (power < 0 || power >= RF24_BLE_POWER_LEVELS)
         return DEVICE_INVALID_PARAMETER;
+
+    DMESG("setTransmitPower");
 
     switch(power) {
         case 0:
@@ -122,13 +145,12 @@ int RF24Radio::setTransmitPower(int power)
   */
 int RF24Radio::setFrequencyBand(int band)
 {
-    // if (ble_running())
-    //     return DEVICE_NOT_SUPPORTED;
-
-    if (band < 0 || band > 100)
+    if (band < 0 || band > 125)
         return DEVICE_INVALID_PARAMETER;
 
-    //
+    DMESG("setFrequencyBand");
+
+    radio.setChannel(band);
 
     return DEVICE_OK;
 }
@@ -152,6 +174,8 @@ FrameBuffer* RF24Radio::getRxBuf()
   */
 int RF24Radio::queueRxBuf()
 {
+    DMESG("queueRxBuf");
+
     if (rxBuf == NULL)
         return DEVICE_INVALID_PARAMETER;
 
@@ -236,9 +260,7 @@ int RF24Radio::enable()
     if (status & RF24_RADIO_STATUS_INITIALISED)
         return DEVICE_OK;
 
-    // Only attempt to enable this radio mode if BLE is disabled.
-    // if (ble_running())
-    //     return DEVICE_NOT_SUPPORTED;
+    DMESG("starting enable");
 
     // If this is the first time we've been enable, allocate out receive buffers.
     if (rxBuf == NULL)
@@ -253,8 +275,36 @@ int RF24Radio::enable()
         return false;
     }
 
-    radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
+    if (radio.isChipConnected())
+    {
+        DMESG("chip appears connected");
+    }
+    else
+    {
+        DMESG("chip not connected");
+    }
+
+    setGroup(this->group);
+
+    radio.setPALevel(RF24_RADIO_DEFAULT_TX_POWER);
+    radio.setChannel(RF24_RADIO_DEFAULT_FREQUENCY);
+
     // radio.setPayloadSize(sizeof(payload)); // float datatype occupies 4 bytes
+
+    ADDRESS[0] = this->group;
+    radio.setAddressWidth(5);
+    radio.openReadingPipe(0, ADDRESS);
+    radio.startListening();
+
+    // register ourselves for a callback event, in order to empty the receive queue.
+    status |= DEVICE_COMPONENT_STATUS_IDLE_TICK;
+
+    // Done. Record that our RADIO is configured.
+    status |= RF24_RADIO_STATUS_INITIALISED;
+
+    //gpio_set_irq_enabled_with_callback(IRQ_PIN, GPIO_IRQ_EDGE_FALL, true, &interruptHandler);
+
+    DMESG("finished enable");
 
     return DEVICE_OK;
 }
@@ -266,11 +316,19 @@ int RF24Radio::enable()
   */
 int RF24Radio::disable()
 {
-    // Only attempt to enable.disable the radio if the protocol is alreayd running.
-    // if (ble_running())
-    //     return DEVICE_NOT_SUPPORTED;
+    DMESG("disable");
 
-    //
+    // Only attempt to enable.disable the radio if the protocol is alreayd running.
+    if (status & RF24_RADIO_STATUS_INITIALISED)
+        return DEVICE_OK;
+
+    radio.stopListening();
+    
+    // deregister ourselves from the callback event used to empty the receive queue.
+    status &= ~DEVICE_COMPONENT_STATUS_IDLE_TICK;
+
+    // record that the radio is now disabled
+    status &= ~RF24_RADIO_STATUS_INITIALISED;
 
     return DEVICE_OK;
 }
@@ -284,13 +342,12 @@ int RF24Radio::disable()
   */
 int RF24Radio::setGroup(uint8_t group)
 {
-    // if (ble_running())
-    //     return DEVICE_NOT_SUPPORTED;
+    DMESG("setGroup");
 
     // Record our group id locally
     this->group = group;
 
-    //
+    // and that's it; address is used when initially opening a listen pipe
 
     return DEVICE_OK;
 }
@@ -302,6 +359,8 @@ int RF24Radio::setGroup(uint8_t group)
 
 void RF24Radio::idleCallback()
 {
+    DMESG("idleCallback");
+
     // Walk the list of packets and process each one.
     while(rxQueue)
     {
@@ -359,14 +418,16 @@ FrameBuffer* RF24Radio::recv()
 {
     FrameBuffer *p = rxQueue;
 
+    DMESG("recv");
+
     if (p)
     {
-         // Protect shared resource from ISR activity
+        gpio_set_irq_enabled(IRQ_PIN, GPIO_IRQ_EDGE_FALL, false);
 
         rxQueue = rxQueue->next;
         queueDepth--;
 
-        // Allow ISR access to shared resource
+        gpio_set_irq_enabled_with_callback(IRQ_PIN, GPIO_IRQ_EDGE_FALL, true, &interruptHandler);
     }
 
     return p;
@@ -382,8 +443,7 @@ FrameBuffer* RF24Radio::recv()
   */
 int RF24Radio::send(FrameBuffer *buffer)
 {
-    // if (ble_running())
-    //     return DEVICE_NOT_SUPPORTED;
+    DMESG("send");
 
     if (buffer == NULL)
         return DEVICE_INVALID_PARAMETER;
@@ -391,23 +451,26 @@ int RF24Radio::send(FrameBuffer *buffer)
     if (buffer->length > RF24_RADIO_MAX_PACKET_SIZE + RF24_RADIO_HEADER_SIZE - 1)
         return DEVICE_INVALID_PARAMETER;
 
-    // Firstly, disable the Radio interrupt. We want to wait until the trasmission completes.
+    // Firstly, disable the Radio interrupt. We want to wait until the transmission completes.
+    gpio_set_irq_enabled(IRQ_PIN, GPIO_IRQ_EDGE_FALL, false);
 
     // Turn off the transceiver.
+    radio.stopListening();
 
     // Configure the radio to send the buffer provided.
-
-    // Turn on the transmitter, and wait for it to signal that it's ready to use.
+    ADDRESS[0] = buffer->group;
+    radio.openWritingPipe(ADDRESS);
 
     // Start transmission and wait for end of packet.
+    bool report = radio.write(buffer->payload, buffer->length, false);
 
     // Return the radio to using the default receive buffer
-
-    // Turn off the transmitter.
-
-    // Start listening for the next packet
+    ADDRESS[0] = this->group;
+    radio.openReadingPipe(0, ADDRESS);
+    radio.startListening();
 
     // Re-enable the Radio interrupt.
+    gpio_set_irq_enabled_with_callback(IRQ_PIN, GPIO_IRQ_EDGE_FALL, true, &interruptHandler);
 
     return DEVICE_OK;
 }
